@@ -2,7 +2,7 @@ import * as ort from "onnxruntime-web";
 import { preprocessImageFile, softmax } from "./onnx-utils";
 
 // Damage class labels - adjust based on your model's output
-const DAMAGE_CLASSES = ["Normal", "Ringan", "Sedang", "Berat"];
+const DAMAGE_CLASSES = ["Ringan", "Sedang", "Berat"];
 
 export interface DetectionResult {
   class: string;
@@ -65,7 +65,7 @@ export async function detectRoadDamage(
 
     const endTime = performance.now();
     const processingTime = endTime - startTime;
-
+    console.log("Processing time:", maxIndex);
     return {
       class: DAMAGE_CLASSES[maxIndex] || "Unknown",
       confidence: confidence * 100, // Convert to percentage
