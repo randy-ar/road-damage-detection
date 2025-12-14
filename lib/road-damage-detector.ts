@@ -65,7 +65,6 @@ export async function detectRoadDamage(
 
     const endTime = performance.now();
     const processingTime = endTime - startTime;
-    console.log("Processing time:", maxIndex);
     return {
       class: DAMAGE_CLASSES[maxIndex] || "Unknown",
       confidence: confidence * 100, // Convert to percentage
