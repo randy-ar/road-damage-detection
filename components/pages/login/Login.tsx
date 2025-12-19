@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
-import { MapPin, Shield, TrendingUp, Users } from "lucide-react";
+import { MapPin, Shield, TrendingUp } from "lucide-react";
 
 const Login = () => {
   const { user, loading, signInWithGoogle } = useAuth();

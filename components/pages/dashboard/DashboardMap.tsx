@@ -1,6 +1,6 @@
 "use client";
 
-import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect } from "react";
@@ -247,7 +247,11 @@ const roadDamageData = [
 const DashboardMap = () => {
   useEffect(() => {
     // Fix for Leaflet icon paths
-    delete (L.Icon.Default.prototype as any)._getIconUrl;
+    const DefaultIcon = L.Icon.Default.prototype as unknown as Record<
+      string,
+      unknown
+    >;
+    delete DefaultIcon._getIconUrl;
     L.Icon.Default.mergeOptions({
       iconRetinaUrl:
         "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
