@@ -1,132 +1,77 @@
-# 🛣️ Road Damage Detection
+# Dashboard Kerusakan Jalan - Jawa Barat
 
-Aplikasi web untuk mendeteksi tingkat kerusakan jalan menggunakan teknologi AI (ONNX Model). Cukup upload foto jalan, dan sistem akan menganalisis tingkat kerusakannya secara otomatis!
+Sistem monitoring dan pemetaan kerusakan infrastruktur jalan untuk operator dinas pemerintahan Provinsi Jawa Barat.
 
-![Demo Aplikasi](image.png)
+## Fitur
 
-![Hasil Deteksi](image-1.png)
+- ✅ **Login dengan Google SSO** - Autentikasi aman menggunakan Firebase
+- 🗺️ **Peta Interaktif** - Visualisasi sebaran kerusakan jalan se-Jawa Barat
+- 📊 **Dashboard Statistik** - Data real-time kondisi jalan
+- 🔒 **Protected Routes** - Hanya user yang terautentikasi dapat mengakses dashboard
+- 📱 **Responsive Design** - Tampilan optimal di berbagai perangkat
 
-## 📋 Tentang Aplikasi
+## Setup Firebase
 
-Aplikasi ini dibuat untuk membantu mengidentifikasi kondisi jalan dengan cepat dan akurat menggunakan model Machine Learning. Sistem akan mengklasifikasikan kerusakan jalan ke dalam 4 kategori:
+### 1. Buat Project Firebase
 
-- **Normal** - Jalan dalam kondisi baik
-- **Ringan** - Kerusakan kecil yang perlu perhatian
-- **Sedang** - Kerusakan yang memerlukan perbaikan segera
-- **Berat** - Kerusakan parah yang berbahaya
+1. Kunjungi [Firebase Console](https://console.firebase.google.com/)
+2. Klik "Add project" atau "Tambah project"
+3. Beri nama project (contoh: "road-damage-jabar")
+4. Ikuti wizard setup hingga selesai
 
-## ✨ Fitur Utama
+### 2. Enable Google Authentication
 
-- 🖼️ **Upload Gambar** - Mendukung format JPG, JPEG, dan PNG
-- 🤖 **Deteksi AI** - Menggunakan model ONNX yang dilatih khusus untuk deteksi kerusakan jalan
-- 📊 **Hasil Detail** - Menampilkan tingkat kerusakan, confidence score, ukuran file, resolusi, dan waktu proses
-- ⚡ **Cepat & Responsif** - Proses deteksi dilakukan langsung di browser
-- 🎨 **UI Modern** - Menggunakan shadcn/ui untuk tampilan yang clean dan profesional
+1. Di Firebase Console, pilih project Anda
+2. Buka **Authentication** dari menu sidebar
+3. Klik tab **Sign-in method**
+4. Klik **Google** dari daftar providers
+5. Toggle **Enable** dan klik **Save**
 
-## 🚀 Cara Menggunakan
+### 3. Daftarkan Web App
 
-### Instalasi
+1. Di Firebase Console, klik ikon **Web** (</>) di halaman overview
+2. Beri nama app (contoh: "Dashboard Web")
+3. Klik **Register app**
+4. Copy konfigurasi Firebase yang ditampilkan
 
-1. **Clone repository ini**
-   ```bash
-   git clone https://github.com/randy-ar/road-damage-detection.git
-   cd road-damage-detection
-   ```
+### 4. Setup Environment Variables
 
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
+1. Buat file `.env.local` di root project
+2. Copy isi dari `.env.local.example` atau gunakan template berikut:
 
-3. **Jalankan aplikasi**
-   ```bash
-   npm run dev
-   ```
-
-4. **Buka browser**
-   
-   Akses [http://localhost:3000](http://localhost:3000)
-
-### Menggunakan Aplikasi
-![alt text](image.png)
-
-1. **Upload Foto Jalan**
-   - Klik tombol "Choose File" atau area upload
-   - Pilih foto jalan dari komputer Anda (format: JPG, JPEG, atau PNG)
-   - Preview foto akan muncul otomatis
-
-2. **Proses Deteksi**
-   - Klik tombol **"Process"**
-   - Tunggu beberapa saat (biasanya < 1 detik)
-   - Sistem akan menganalisis foto menggunakan AI
-
-![alt text](image-1.png)
-
-3. **Lihat Hasil**
-   - Hasil deteksi akan muncul dalam bentuk tabel
-   - Informasi yang ditampilkan:
-     - **Result**: Tingkat kerusakan (Normal/Ringan/Sedang/Berat)
-     - **Confidence**: Tingkat keyakinan AI (dalam persen)
-     - **Size**: Ukuran file foto
-     - **Resolution**: Resolusi foto (lebar × tinggi)
-     - **Processing Time**: Waktu yang dibutuhkan untuk analisis
-
-## 🛠️ Teknologi yang Digunakan
-
-- **Next.js 15** - Framework React untuk production
-- **TypeScript** - Type-safe JavaScript
-- **ONNX Runtime Web** - Menjalankan model AI di browser
-- **shadcn/ui** - Komponen UI modern dan accessible
-- **Tailwind CSS** - Styling yang efisien
-- **React Hook Form** - Form management
-
-## 📁 Struktur Project
-
-```
-road-damage-detection/
-├── app/                          # Next.js app directory
-├── components/
-│   ├── pages/
-│   │   └── RoadDetection.tsx    # Komponen utama deteksi
-│   └── ui/                      # Komponen UI (shadcn)
-├── lib/
-│   ├── road-damage-detector.ts  # Logic deteksi ONNX
-│   ├── onnx-utils.ts           # Utilities preprocessing
-│   └── utils.ts                # Helper functions
-├── public/
-│   └── models/                 # Model ONNX
-│       └── road_damage_classifier_single.onnx
-└── README.md
+```env
+NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key_here
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project_id.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
+NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
 ```
 
-## 🧠 Tentang Model AI
+3. Ganti nilai-nilai di atas dengan konfigurasi Firebase Anda
 
-Model yang digunakan adalah **custom ONNX model** yang telah dilatih khusus untuk mendeteksi kerusakan jalan. Model ini:
+### 5. Konfigurasi Authorized Domains
 
-- Menggunakan arsitektur neural network yang efisien
-- Dioptimasi untuk berjalan di browser menggunakan WebAssembly
-- Ukuran model: ~16 MB (single file dengan embedded weights)
-- Input: Gambar 224×224 pixels (RGB)
-- Output: 4 kelas (Normal, Ringan, Sedang, Berat)
+1. Di Firebase Console, buka **Authentication** > **Settings** > **Authorized domains**
+2. Tambahkan domain yang akan digunakan:
+   - `localhost` (untuk development)
+   - Domain production Anda (jika sudah deploy)
 
-## 🔧 Troubleshooting
+## Instalasi & Menjalankan Project
 
-### Model tidak load / Error saat load model
+### Install Dependencies
 
-Pastikan file model ada di folder `public/models/`:
 ```bash
-ls public/models/road_damage_classifier_single.onnx
+npm install
 ```
 
-### Warning "Unknown CPU vendor"
+### Jalankan Development Server
 
-Warning ini aman dan tidak mempengaruhi fungsionalitas. Sudah di-suppress di kode.
+```bash
+npm run dev
+```
 
-### Gambar tidak bisa diupload
-
-Pastikan format gambar adalah JPG, JPEG, atau PNG. Format lain tidak didukung.
-
-## 📝 Development
+Buka [http://localhost:3000](http://localhost:3000) di browser Anda.
 
 ### Build untuk Production
 
@@ -135,40 +80,117 @@ npm run build
 npm start
 ```
 
-### Linting
+## Struktur Project
 
-```bash
-npm run lint
+```
+road-detection/
+├── app/
+│   ├── dashboard/
+│   │   └── page.tsx          # Dashboard page (protected)
+│   ├── login/
+│   │   └── page.tsx          # Login page
+│   ├── layout.tsx            # Root layout dengan AuthProvider
+│   └── globals.css           # Global styles
+├── components/
+│   ├── pages/
+│   │   ├── dashboard/
+│   │   │   ├── Dashboard.tsx     # Dashboard component
+│   │   │   └── DashboardMap.tsx  # Map component dengan Leaflet
+│   │   └── login/
+│   │       └── Login.tsx         # Login component
+│   └── ProtectedRoute.tsx    # HOC untuk protected routes
+├── contexts/
+│   └── AuthContext.tsx       # Authentication context
+├── lib/
+│   └── firebase.ts           # Firebase configuration
+└── .env.local               # Environment variables (tidak di-commit)
 ```
 
-## 🤝 Kontribusi
+## Teknologi yang Digunakan
 
-Kontribusi sangat diterima! Silakan:
+- **Next.js 15** - React framework
+- **Firebase Authentication** - Google SSO
+- **React Leaflet** - Interactive maps
+- **Tailwind CSS** - Styling
+- **TypeScript** - Type safety
+- **Lucide React** - Icons
 
-1. Fork repository ini
-2. Buat branch baru (`git checkout -b feature/AmazingFeature`)
-3. Commit perubahan (`git commit -m 'Add some AmazingFeature'`)
-4. Push ke branch (`git push origin feature/AmazingFeature`)
-5. Buat Pull Request
+## Flow Aplikasi
 
-## 📄 License
+1. User mengakses aplikasi
+2. Jika belum login, diarahkan ke halaman `/login`
+3. User klik "Masuk dengan Google"
+4. Firebase menangani autentikasi dengan Google
+5. Setelah berhasil login, user diarahkan ke `/dashboard`
+6. Dashboard menampilkan:
+   - Statistik kerusakan jalan (Total, Parah, Sedang, Ringan)
+   - Peta interaktif dengan marker lokasi kerusakan
+   - Info user yang sedang login
+7. User dapat logout dengan klik tombol "Keluar"
 
-Project ini dibuat untuk keperluan edukasi dan penelitian.
+## Data Kerusakan Jalan
 
-## 👨‍💻 Author
+Saat ini menggunakan dummy data dengan 20+ lokasi kerusakan jalan di berbagai kota di Jawa Barat:
+- Bandung
+- Bekasi
+- Bogor
+- Cirebon
+- Depok
+- Tasikmalaya
+- Sukabumi
+- Karawang
+- Purwakarta
+- Garut
 
-**Randy AR**
+Setiap data kerusakan memiliki:
+- ID unik
+- Koordinat (latitude, longitude)
+- Tingkat keparahan (critical, moderate, minor)
+- Lokasi jalan
+- Kota
+- Deskripsi kerusakan
 
-- GitHub: [@randy-ar](https://github.com/randy-ar)
-- Repository: [road-damage-detection](https://github.com/randy-ar/road-damage-detection)
+## Customization
 
-## 🙏 Acknowledgments
+### Menambah Data Kerusakan Jalan
 
-- Next.js Team untuk framework yang luar biasa
-- ONNX Runtime untuk inference engine
-- shadcn untuk komponen UI yang beautiful
-- Semua kontributor open source
+Edit file `components/pages/dashboard/DashboardMap.tsx` dan tambahkan data di array `roadDamageData`:
 
----
+```typescript
+{
+  id: 21,
+  lat: -6.xxxx,
+  lng: 107.xxxx,
+  severity: 'critical', // 'critical' | 'moderate' | 'minor'
+  location: 'Jl. Nama Jalan, Kota',
+  description: 'Deskripsi kerusakan',
+  city: 'Nama Kota'
+}
+```
 
-**Dibuat dengan ❤️ menggunakan Next.js dan ONNX**
+### Mengubah Warna Marker
+
+Edit fungsi `createCustomIcon` di file `DashboardMap.tsx` untuk mengubah warna marker berdasarkan severity.
+
+## Troubleshooting
+
+### Error: "Firebase: Error (auth/unauthorized-domain)"
+
+**Solusi:** Tambahkan domain Anda ke Authorized domains di Firebase Console (Authentication > Settings > Authorized domains)
+
+### Map tidak muncul
+
+**Solusi:** 
+1. Pastikan Leaflet CSS sudah di-import di `globals.css`
+2. Clear cache browser dan reload
+3. Check console untuk error
+
+### User tidak ter-redirect setelah login
+
+**Solusi:**
+1. Pastikan AuthProvider sudah wrap semua component di `app/layout.tsx`
+2. Check Firebase configuration di `.env.local`
+
+## License
+
+© 2025 Dinas Pekerjaan Umum dan Penataan Ruang Provinsi Jawa Barat
