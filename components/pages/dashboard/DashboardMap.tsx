@@ -3,7 +3,33 @@
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { db } from "@/lib/firebase";
+import { collection, getDocs } from "firebase/firestore";
+
+// Interface for road damage data from Firestore
+interface RoadDamageData {
+  id: number;
+  kode_provinsi: string;
+  nama_provinsi: string;
+  kode_kabupaten_kota: string;
+  nama_kabupaten_kota: string;
+  latitude: number;
+  longitude: number;
+  berat: number;
+  rusak_parah: number;
+  rusak_sedang: number;
+}
+
+// Interface for display data
+interface DisplayDamageData {
+  id: number;
+  lat: number;
+  lng: number;
+  severity: "critical" | "moderate" | "minor";
+  location: string;
+  city: string;
+}
 
 // Fix for default marker icons in Leaflet
 const icon = L.icon({
@@ -41,210 +67,11 @@ const criticalIcon = createCustomIcon("#ef4444");
 const moderateIcon = createCustomIcon("#eab308");
 const minorIcon = createCustomIcon("#22c55e");
 
-// Dummy data untuk lokasi kerusakan jalan di Jawa Barat
-const roadDamageData = [
-  // Bandung
-  {
-    id: 1,
-    lat: -6.9175,
-    lng: 107.6191,
-    severity: "critical",
-    location: "Jl. Asia Afrika, Bandung",
-    description: "Lubang besar diameter 2m",
-    city: "Bandung",
-  },
-  {
-    id: 2,
-    lat: -6.9147,
-    lng: 107.6098,
-    severity: "moderate",
-    location: "Jl. Dago, Bandung",
-    description: "Retak memanjang 5m",
-    city: "Bandung",
-  },
-  {
-    id: 3,
-    lat: -6.9344,
-    lng: 107.6049,
-    severity: "minor",
-    location: "Jl. Pasteur, Bandung",
-    description: "Permukaan kasar",
-    city: "Bandung",
-  },
-
-  // Bekasi
-  {
-    id: 4,
-    lat: -6.2383,
-    lng: 106.9756,
-    severity: "critical",
-    location: "Jl. Ahmad Yani, Bekasi",
-    description: "Jalan amblas 3m²",
-    city: "Bekasi",
-  },
-  {
-    id: 5,
-    lat: -6.2615,
-    lng: 107.0012,
-    severity: "moderate",
-    location: "Jl. Cut Mutiah, Bekasi",
-    description: "Aspal mengelupas",
-    city: "Bekasi",
-  },
-
-  // Bogor
-  {
-    id: 6,
-    lat: -6.5971,
-    lng: 106.806,
-    severity: "critical",
-    location: "Jl. Pajajaran, Bogor",
-    description: "Lubang dalam 30cm",
-    city: "Bogor",
-  },
-  {
-    id: 7,
-    lat: -6.5885,
-    lng: 106.7979,
-    severity: "minor",
-    location: "Jl. Sudirman, Bogor",
-    description: "Retak halus",
-    city: "Bogor",
-  },
-
-  // Cirebon
-  {
-    id: 8,
-    lat: -6.7063,
-    lng: 108.5571,
-    severity: "moderate",
-    location: "Jl. Siliwangi, Cirebon",
-    description: "Permukaan bergelombang",
-    city: "Cirebon",
-  },
-  {
-    id: 9,
-    lat: -6.732,
-    lng: 108.552,
-    severity: "minor",
-    location: "Jl. Kesambi, Cirebon",
-    description: "Bahu jalan rusak",
-    city: "Cirebon",
-  },
-
-  // Depok
-  {
-    id: 10,
-    lat: -6.4025,
-    lng: 106.7942,
-    severity: "critical",
-    location: "Jl. Margonda Raya, Depok",
-    description: "Lubang besar di jalur kanan",
-    city: "Depok",
-  },
-  {
-    id: 11,
-    lat: -6.3915,
-    lng: 106.8317,
-    severity: "moderate",
-    location: "Jl. Juanda, Depok",
-    description: "Retak alligator",
-    city: "Depok",
-  },
-
-  // Tasikmalaya
-  {
-    id: 12,
-    lat: -7.3506,
-    lng: 108.205,
-    severity: "moderate",
-    location: "Jl. HZ Mustofa, Tasikmalaya",
-    description: "Aspal berlubang",
-    city: "Tasikmalaya",
-  },
-  {
-    id: 13,
-    lat: -7.3274,
-    lng: 108.2207,
-    severity: "minor",
-    location: "Jl. Sutisna Senjaya, Tasikmalaya",
-    description: "Permukaan aus",
-    city: "Tasikmalaya",
-  },
-
-  // Sukabumi
-  {
-    id: 14,
-    lat: -6.9278,
-    lng: 106.9271,
-    severity: "critical",
-    location: "Jl. Bhayangkara, Sukabumi",
-    description: "Jalan amblas",
-    city: "Sukabumi",
-  },
-  {
-    id: 15,
-    lat: -6.9186,
-    lng: 106.928,
-    severity: "moderate",
-    location: "Jl. Pelabuhan II, Sukabumi",
-    description: "Retak memanjang",
-    city: "Sukabumi",
-  },
-
-  // Karawang
-  {
-    id: 16,
-    lat: -6.3063,
-    lng: 107.3019,
-    severity: "moderate",
-    location: "Jl. Tuparev, Karawang",
-    description: "Permukaan bergelombang",
-    city: "Karawang",
-  },
-  {
-    id: 17,
-    lat: -6.3215,
-    lng: 107.3344,
-    severity: "minor",
-    location: "Jl. Kertabumi, Karawang",
-    description: "Retak kecil",
-    city: "Karawang",
-  },
-
-  // Purwakarta
-  {
-    id: 18,
-    lat: -6.5569,
-    lng: 107.4431,
-    severity: "critical",
-    location: "Jl. Veteran, Purwakarta",
-    description: "Lubang dalam",
-    city: "Purwakarta",
-  },
-
-  // Garut
-  {
-    id: 19,
-    lat: -7.2253,
-    lng: 107.9019,
-    severity: "moderate",
-    location: "Jl. Ciledug, Garut",
-    description: "Aspal mengelupas",
-    city: "Garut",
-  },
-  {
-    id: 20,
-    lat: -7.2145,
-    lng: 107.8967,
-    severity: "minor",
-    location: "Jl. Pembangunan, Garut",
-    description: "Permukaan kasar",
-    city: "Garut",
-  },
-];
-
 const DashboardMap = () => {
+  const [roadDamageData, setRoadDamageData] = useState<DisplayDamageData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     // Fix for Leaflet icon paths
     const DefaultIcon = L.Icon.Default.prototype as unknown as Record<
@@ -259,6 +86,50 @@ const DashboardMap = () => {
       shadowUrl:
         "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
     });
+
+    // Fetch data from Firestore
+    const fetchRoadDamages = async () => {
+      try {
+        setLoading(true);
+        const roadDamagesRef = collection(db, "road_damages");
+        const snapshot = await getDocs(roadDamagesRef);
+
+        const damages: DisplayDamageData[] = [];
+
+        snapshot.forEach((doc) => {
+          const data = doc.data() as RoadDamageData;
+
+          // Determine severity based on damage type
+          let severity: "critical" | "moderate" | "minor" = "minor";
+          if (data.berat === 1) {
+            severity = "critical";
+          } else if (data.rusak_parah === 1) {
+            severity = "critical";
+          } else if (data.rusak_sedang === 1) {
+            severity = "moderate";
+          }
+
+          damages.push({
+            id: data.id,
+            lat: data.latitude,
+            lng: data.longitude,
+            severity: severity,
+            location: `${data.nama_kabupaten_kota}`,
+            city: data.nama_kabupaten_kota,
+          });
+        });
+
+        setRoadDamageData(damages);
+        setError(null);
+      } catch (err) {
+        console.error("Error fetching road damages:", err);
+        setError("Gagal memuat data kerusakan jalan");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRoadDamages();
   }, []);
 
   const getIcon = (severity: string) => {
@@ -343,7 +214,7 @@ const DashboardMap = () => {
                 </p>
                 <p className="text-gray-600">
                   <span className="font-semibold">Deskripsi:</span>{" "}
-                  {damage.description}
+                  {damage.severity}
                 </p>
               </div>
             </div>
