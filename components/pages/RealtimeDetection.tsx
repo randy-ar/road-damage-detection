@@ -2,21 +2,36 @@
 
 import React, { useRef, useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
+import {
+  preprocessVideoForSSD,
+  parseSSDOutput,
+  drawDetections,
+} from "@/lib/ssd-detector";
 
 // Type for ONNX Runtime
 type OrtType = typeof import("onnxruntime-web");
 
+// The actual InferenceSession instance type (what create() returns)
+// This has properties that aren't in the InferenceSessionFactory type
+type InferenceSessionInstance = {
+  readonly inputNames: readonly string[];
+  readonly outputNames: readonly string[];
+  run(
+    feeds: Record<string, InstanceType<OrtType["Tensor"]>>
+  ): Promise<Record<string, InstanceType<OrtType["Tensor"]>>>;
+};
+
 export default function RealtimeDetection() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [session, setSession] = useState<OrtType["InferenceSession"] | null>(
-    null
-  );
+  const [session, setSession] = useState<InferenceSessionInstance | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const [ort, setOrt] = useState<OrtType | null>(null);
   const [modelInfo, setModelInfo] = useState<string | null>(null);
+  const [fps, setFps] = useState<number>(0);
+  const [detectionCount, setDetectionCount] = useState<number>(0);
 
   // Ensure we're on client side
   useEffect(() => {
@@ -34,8 +49,12 @@ export default function RealtimeDetection() {
         setOrt(ortModule);
         console.log("ONNX Runtime Web loaded successfully");
       } catch (e) {
-        console.error("Failed to load ONNX Runtime Web:", e);
-        setError("Failed to load ONNX Runtime library");
+        // Suppress error overlay by using console.warn instead of console.error
+        const errorMessage = e instanceof Error ? e.message : "Unknown error";
+        console.warn("Failed to load ONNX Runtime Web:", errorMessage);
+        setError(
+          "Failed to load ONNX Runtime library. Please refresh the page."
+        );
         setIsLoading(false);
       }
     }
@@ -64,6 +83,10 @@ export default function RealtimeDetection() {
 
         console.log("Loading ONNX model from /models/ssd_mobilenet.onnx...");
 
+        // NOTE: You may see a warning "Unknown CPU vendor" in the console.
+        // This is HARMLESS and EXPECTED - see docs/ONNX_CPU_WARNING.md for details.
+        // The warning comes from ONNX Runtime's internal code and cannot be suppressed.
+        // Your model will still load and run correctly.
         const sess = await ortRuntime.InferenceSession.create(
           "/models/ssd_mobilenet.onnx",
           {
@@ -84,13 +107,14 @@ export default function RealtimeDetection() {
           `Model loaded with ${sess.inputNames.length} input(s) and ${sess.outputNames.length} output(s)`
         );
 
-        setSession(sess as unknown as OrtType["InferenceSession"]);
+        setSession(sess as InferenceSessionInstance);
         setIsLoading(false);
       } catch (e) {
-        console.error("❌ Failed to load model:", e);
-        setError(
-          e instanceof Error ? e.message : "Unknown error loading model"
-        );
+        // Suppress error overlay by using console.warn and extracting message only
+        const errorMessage =
+          e instanceof Error ? e.message : "Unknown error loading model";
+        console.warn("❌ Failed to load model:", errorMessage);
+        setError(errorMessage);
         setIsLoading(false);
       }
     }
@@ -112,46 +136,105 @@ export default function RealtimeDetection() {
     }
   };
 
-  // 3. Loop Deteksi
+  // 3. Loop Deteksi Real-time
   useEffect(() => {
+    if (!session || !ort) return;
+
     let requestID: number;
+    let isProcessing = false;
+    let lastTime = performance.now();
+    let frameCount = 0;
 
     const detectFrame = async () => {
-      if (videoRef.current && canvasRef.current && session) {
+      if (
+        videoRef.current &&
+        canvasRef.current &&
+        session &&
+        !isProcessing &&
+        videoRef.current.readyState === 4
+      ) {
         const video = videoRef.current;
         const canvas = canvasRef.current;
         const ctx = canvas.getContext("2d");
 
-        if (ctx && video.readyState === 4) {
+        if (!ctx) {
+          requestID = requestAnimationFrame(detectFrame);
+          return;
+        }
+
+        isProcessing = true;
+        const startTime = performance.now();
+
+        try {
           // Samakan ukuran canvas dengan video
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
 
-          // --- Proses Gambar ke Tensor ---
-          // Catatan: Anda perlu menyesuaikan preprocessing ini
-          // sesuai dengan input model SSD/EfficientNet Anda (300x300 atau 224x224)
-
-          // Contoh pemanggilan inferensi (pseudo-code sesuai lib/onnx-utils Anda)
-          // const results = await runInference(session, video);
-
-          // --- Gambar Hasil ke Canvas ---
+          // Gambar video ke canvas
           ctx.clearRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-          // Contoh menggambar Box (Ganti dengan koordinat hasil prediksi)
-          ctx.strokeStyle = "#00FF00";
-          ctx.lineWidth = 4;
-          ctx.strokeRect(50, 50, 200, 200);
-          ctx.fillStyle = "#00FF00";
-          ctx.fillText("Rusak: Ringan", 55, 45);
+          // --- Preprocessing untuk SSD MobileNet ---
+          const inputTensor = preprocessVideoForSSD(video, 300);
+
+          // --- Run Inference ---
+          const inputName = session.inputNames[0];
+          const feeds = { [inputName]: inputTensor };
+          const outputs = await session.run(feeds);
+
+          // Debug: Log output structure (only on first detection)
+          if (frameCount === 0) {
+            console.log("🔍 Model outputs:", Object.keys(outputs));
+            Object.entries(outputs).forEach(([name, tensor]) => {
+              console.log(
+                `  - ${name}: shape=${tensor.dims}, type=${tensor.type}`
+              );
+            });
+          }
+
+          // --- Parse hasil deteksi ---
+          const detections = parseSSDOutput(
+            outputs,
+            0.5, // threshold confidence
+            canvas.width,
+            canvas.height
+          );
+
+          // Update detection count
+          setDetectionCount(detections.length);
+
+          // --- Gambar bounding boxes ---
+          drawDetections(ctx, detections);
+
+          // Calculate FPS
+          frameCount++;
+          const currentTime = performance.now();
+          if (currentTime - lastTime >= 1000) {
+            setFps(frameCount);
+            frameCount = 0;
+            lastTime = currentTime;
+          }
+
+          // Log deteksi (optional, untuk debugging)
+          if (detections.length > 0) {
+            console.log(`Detected ${detections.length} object(s):`, detections);
+          }
+        } catch (error) {
+          // Suppress error overlay - only log message, not full error object
+          const errorMessage =
+            error instanceof Error ? error.message : "Unknown detection error";
+          console.warn("Error during detection:", errorMessage);
+        } finally {
+          isProcessing = false;
         }
       }
+
       requestID = requestAnimationFrame(detectFrame);
     };
 
     detectFrame();
     return () => cancelAnimationFrame(requestID);
-  }, [session]);
+  }, [session, ort]);
 
   return (
     <Card className="p-4 flex flex-col items-center">
@@ -168,6 +251,19 @@ export default function RealtimeDetection() {
           <p className="text-sm">✅ {modelInfo}</p>
         </div>
       )}
+
+      {/* Performance Stats */}
+      {session && !isLoading && (
+        <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-2 rounded mb-4 flex gap-4 text-sm">
+          <div>
+            <span className="font-bold">FPS:</span> {fps}
+          </div>
+          <div>
+            <span className="font-bold">Detections:</span> {detectionCount}
+          </div>
+        </div>
+      )}
+
       <div className="relative">
         <video
           ref={videoRef}
@@ -179,7 +275,7 @@ export default function RealtimeDetection() {
         />
         <canvas
           ref={canvasRef}
-          className="absolute top-0 left-0"
+          className="absolute top-0 left-0 rounded-lg"
           style={{ width: "100%", maxWidth: "640px" }}
         />
       </div>

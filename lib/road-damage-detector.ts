@@ -71,7 +71,10 @@ export async function detectRoadDamage(
       processingTime,
     };
   } catch (error) {
-    console.error("Error during inference:", error);
+    // Suppress error overlay - only log message, not full error object
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown inference error";
+    console.warn("Error during inference:", errorMessage);
     throw new Error("Failed to process image");
   }
 }
