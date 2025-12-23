@@ -1,15 +1,31 @@
 import { Tensor } from "onnxruntime-web";
 
-// Label map untuk class detection
+// Label map untuk Road Damage Detection
+// Based on Sekilab RoadDamageDetector dataset
+// Reference: https://github.com/sekilab/RoadDamageDetector
+//
+// Standard labels used in Road Damage Detection Challenge:
+// - D00: Longitudinal Cracks (retakan memanjang sejajar arah lalu lintas)
+// - D10: Transverse Cracks (retakan melintang tegak lurus arah lalu lintas)
+// - D20: Alligator Cracks (retakan bercabang seperti kulit buaya)
+// - D40: Potholes (lubang di permukaan jalan)
+//
+// Additional labels (may vary by model):
+// - D01: Linear Crack, Construction Joint (Longitudinal)
+// - D11: Linear Crack, Construction Joint (Transverse)
+// - D43: Crosswalk Blur (garis zebra kabur)
+// - D44: White Line Blur (marka jalan putih kabur)
+//
+// Note: Most models focus on the 4 main classes (D00, D10, D20, D40)
 export const DAMAGE_LABEL_MAP: { [key: number]: string } = {
-  0: "Berat",
-  1: "Ringan",
-  2: "Sedang",
-  3: "Longitudinal Crack",
-  4: "Transverse Crack",
-  5: "Alligator Crack",
-  6: "Pothole",
-  7: "Other",
+  0: "D00 - Longitudinal Crack",
+  1: "D10 - Transverse Crack",
+  2: "D20 - Alligator Crack",
+  3: "D40 - Pothole",
+  4: "D01 - Construction Joint (Long.)",
+  5: "D11 - Construction Joint (Trans.)",
+  6: "D43 - Crosswalk Blur",
+  7: "D44 - White Line Blur",
 };
 
 export interface DetectionBox {
@@ -164,16 +180,22 @@ export function drawDetections(
     const width = xmax - xmin;
     const height = ymax - ymin;
 
-    // Warna berbeda untuk setiap class
+    // Color mapping for Road Damage Detection classes
+    // Severity-based colors:
+    // - Red: Critical damage (Potholes)
+    // - Orange: Severe cracks (Alligator)
+    // - Yellow: Moderate cracks (Transverse)
+    // - Green: Minor cracks (Longitudinal)
+    // - Cyan: Road markings (Crosswalk, White Line)
     const colors: { [key: string]: string } = {
-      Berat: "#FF0000", // Red
-      Sedang: "#FFA500", // Orange
-      Ringan: "#FFFF00", // Yellow
-      "Longitudinal Crack": "#00FF00",
-      "Transverse Crack": "#00FFFF",
-      "Alligator Crack": "#FF00FF",
-      Pothole: "#FF0000",
-      Other: "#FFFFFF",
+      "D00 - Longitudinal Crack": "#00FF00", // Green - Minor
+      "D10 - Transverse Crack": "#FFFF00", // Yellow - Moderate
+      "D20 - Alligator Crack": "#FFA500", // Orange - Severe
+      "D40 - Pothole": "#FF0000", // Red - Critical
+      "D01 - Construction Joint (Long.)": "#00FFAA", // Light Green
+      "D11 - Construction Joint (Trans.)": "#FFFF88", // Light Yellow
+      "D43 - Crosswalk Blur": "#00FFFF", // Cyan
+      "D44 - White Line Blur": "#88FFFF", // Light Cyan
     };
 
     const color = colors[className] || "#00FF00";
