@@ -39,7 +39,7 @@ export default function RealtimeDetection() {
   const [modelInfo, setModelInfo] = useState<string | null>(null);
   const [fps, setFps] = useState<number>(0);
   const [detectionCount, setDetectionCount] = useState<number>(0);
-  const [inferenceInterval, setInferenceInterval] = useState<number>(300); // Default: 1 second
+  const [inferenceInterval, setInferenceInterval] = useState<number>(1000); // Default: 1 second
   const lastInferenceTimeRef = useRef<number>(0);
   const [lastDetections, setLastDetections] = useState<
     ReturnType<typeof parseSSDOutput>
@@ -153,32 +153,74 @@ export default function RealtimeDetection() {
     if (!session || !ort) return;
 
     let requestID: number;
+    let isProcessing = false;
     let lastTime = performance.now();
     let frameCount = 0;
 
-    const renderFrame = () => {
+    const detectFrame = async () => {
+      const now = performance.now();
+
       if (
         videoRef.current &&
         canvasRef.current &&
-        videoRef.current.readyState === 4
+        session &&
+        !isProcessing &&
+        videoRef.current.readyState === 4 &&
+        now - lastInferenceTimeRef.current >= inferenceInterval // Throttle based on selected interval
       ) {
         const video = videoRef.current;
         const canvas = canvasRef.current;
         const ctx = canvas.getContext("2d");
 
-        if (ctx) {
-          // Update canvas size
+        if (!ctx) {
+          requestID = requestAnimationFrame(detectFrame);
+          return;
+        }
+
+        isProcessing = true;
+        lastInferenceTimeRef.current = now; // Update last inference time
+        const startTime = performance.now();
+
+        try {
+          // Samakan ukuran canvas dengan video
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
 
-          // Draw video frame
+          // Gambar video ke canvas
           ctx.clearRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-          // Draw last detection results
-          if (lastDetections.length > 0) {
-            drawDetections(ctx, lastDetections);
+          // --- Preprocessing untuk SSD MobileNet ---
+          const inputTensor = preprocessVideoForSSD(video, 300);
+
+          // --- Run Inference ---
+          const inputName = session.inputNames[0];
+          const feeds = { [inputName]: inputTensor };
+          const outputs = await session.run(feeds);
+
+          // Debug: Log output structure (only on first detection)
+          if (frameCount === 0) {
+            console.log("🔍 Model outputs:", Object.keys(outputs));
+            Object.entries(outputs).forEach(([name, tensor]) => {
+              console.log(
+                `  - ${name}: shape=${tensor.dims}, type=${tensor.type}`
+              );
+            });
           }
+
+          // --- Parse hasil deteksi ---
+          const detections = parseSSDOutput(
+            outputs,
+            0.5, // threshold confidence
+            canvas.width,
+            canvas.height
+          );
+
+          // Update detection count
+          setDetectionCount(detections.length);
+
+          // --- Gambar bounding boxes ---
+          drawDetections(ctx, detections);
 
           // Calculate FPS
           frameCount++;
@@ -188,67 +230,13 @@ export default function RealtimeDetection() {
             frameCount = 0;
             lastTime = currentTime;
           }
-        }
-      }
 
-      requestID = requestAnimationFrame(renderFrame);
-    };
-
-    renderFrame();
-    return () => cancelAnimationFrame(requestID);
-  }, [session, ort, lastDetections]);
-
-  // 4. Inference Loop
-  useEffect(() => {
-    if (!session || !ort) return;
-
-    let isProcessing = false;
-
-    const runInference = async () => {
-      if (
-        videoRef.current &&
-        canvasRef.current &&
-        !isProcessing &&
-        videoRef.current.readyState === 4
-      ) {
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-
-        isProcessing = true;
-
-        try {
-          const inputTensor = preprocessVideoForSSD(video, 300);
-          const inputName = session.inputNames[0];
-          const feeds = { [inputName]: inputTensor };
-          const outputs = await session.run(feeds);
-
-          // Debug log (first time only)
-          if (lastInferenceTimeRef.current === 0) {
-            console.log("🔍 Model outputs:", Object.keys(outputs));
-            Object.entries(outputs).forEach(([name, tensor]) => {
-              console.log(
-                `  - ${name}: shape=${tensor.dims}, type=${tensor.type}`
-              );
-            });
-          }
-
-          lastInferenceTimeRef.current = performance.now();
-
-          const detections = parseSSDOutput(
-            outputs,
-            0.5,
-            canvas.width,
-            canvas.height
-          );
-
-          // Update state (triggers re-render)
-          setLastDetections(detections);
-          setDetectionCount(detections.length);
-
+          // Log deteksi (optional, untuk debugging)
           if (detections.length > 0) {
             console.log(`Detected ${detections.length} object(s):`, detections);
           }
         } catch (error) {
+          // Suppress error overlay - only log message, not full error object
           const errorMessage =
             error instanceof Error ? error.message : "Unknown detection error";
           console.warn("Error during detection:", errorMessage);
@@ -256,13 +244,13 @@ export default function RealtimeDetection() {
           isProcessing = false;
         }
       }
+
+      requestID = requestAnimationFrame(detectFrame);
     };
 
-    const intervalID = setInterval(runInference, inferenceInterval);
-    runInference(); // Run immediately
-
-    return () => clearInterval(intervalID);
-  }, [session, ort, inferenceInterval]);
+    detectFrame();
+    return () => cancelAnimationFrame(requestID);
+  }, [session, ort, inferenceInterval]); // Added inferenceInterval to restart loop when changed
 
   return (
     <Card className="p-4 flex flex-col items-center">
@@ -306,11 +294,6 @@ export default function RealtimeDetection() {
               <SelectValue placeholder="Pilih interval prediksi" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="100">100 ms</SelectItem>
-              <SelectItem value="200">200 ms</SelectItem>
-              <SelectItem value="300">300 ms</SelectItem>
-              <SelectItem value="400">400 ms</SelectItem>
-              <SelectItem value="500">500 ms</SelectItem>
               <SelectItem value="1000">1 detik</SelectItem>
               <SelectItem value="2000">2 detik</SelectItem>
               <SelectItem value="3000">3 detik</SelectItem>
