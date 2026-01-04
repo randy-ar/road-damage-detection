@@ -13,6 +13,18 @@ const options = {
     strict: true,
     deprecationErrors: true,
   },
+  // Serverless-friendly options for Vercel
+  retryWrites: true,
+  w: "majority" as const,
+  maxPoolSize: 10,
+  minPoolSize: 1,
+  maxIdleTimeMS: 10000,
+  serverSelectionTimeoutMS: 10000,
+  socketTimeoutMS: 45000,
+  // TLS/SSL options
+  tls: true,
+  tlsAllowInvalidCertificates: false,
+  tlsAllowInvalidHostnames: false,
 };
 
 let client: MongoClient;
