@@ -1,45 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
-
-export interface RoadDamageData {
-  id: number;
-  kode_provinsi: string;
-  nama_provinsi: string;
-  kode_kabupaten_kota: string;
-  nama_kabupaten_kota: string;
-  latitude: number;
-  longitude: number;
-  berat: number;
-  rusak_parah: number;
-  rusak_sedang: number;
-}
+import { getDatabase, COLLECTIONS } from "@/lib/mongodb";
+import type { RoadDamageDocument } from "@/types/mongodb";
 
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const kabupaten = searchParams.get("kabupaten");
 
-    const roadDamagesRef = collection(db, "road_damages");
-    const snapshot = await getDocs(roadDamagesRef);
+    // Connect to MongoDB
+    const db = await getDatabase();
+    const roadDamagesCollection = db.collection<RoadDamageDocument>(
+      COLLECTIONS.ROAD_DAMAGES
+    );
 
-    const data: RoadDamageData[] = [];
+    // Build query filter
+    const filter: Record<string, string> = {};
+    if (kabupaten) {
+      filter.kode_kabupaten_kota = kabupaten;
+    }
 
-    snapshot.forEach((doc) => {
-      const damageData = doc.data() as RoadDamageData;
-
-      // Filter by kabupaten if specified
-      if (kabupaten && damageData.kode_kabupaten_kota !== kabupaten) {
-        return;
-      }
-
-      data.push(damageData);
-    });
+    // Fetch road damages
+    const roadDamages = await roadDamagesCollection.find(filter).toArray();
 
     return NextResponse.json({
       success: true,
-      count: data.length,
-      data: data,
+      count: roadDamages.length,
+      data: roadDamages,
     });
   } catch (error) {
     console.error("Error fetching road damages:", error);

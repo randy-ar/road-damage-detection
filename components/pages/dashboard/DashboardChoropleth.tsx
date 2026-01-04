@@ -1,11 +1,21 @@
 "use client";
 
-import { MapContainer, TileLayer, GeoJSON } from "react-leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  GeoJSON,
+  useMap,
+  useMapEvents,
+} from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { useEffect, useState } from "react";
-import * as topojson from "topojson-client";
+import { useEffect, useState, useRef } from "react";
 import { Feature, FeatureCollection, Geometry } from "geojson";
+
+interface ChoroplethKecamatan {
+  nama: string;
+  kode: string;
+}
 
 interface RoadDamageData {
   id: number;
@@ -13,61 +23,37 @@ interface RoadDamageData {
   nama_provinsi: string;
   kode_kabupaten_kota: string;
   nama_kabupaten_kota: string;
+  kode_kecamatan: string;
+  nama_kecamatan: string;
   latitude: number;
   longitude: number;
-  berat: number;
-  rusak_parah: number;
-  rusak_sedang: number;
+  kerusakan: string; // ringan, sedang, berat
+  choropleth?: ChoroplethKecamatan;
 }
 
-interface KabupatenStatsData {
+interface StatsData {
   total: number;
   parah: number;
   sedang: number;
   ringan: number;
 }
 
-interface KabupatenStatsItem {
-  id: string;
-  nama: string;
-  data: KabupatenStatsData;
-}
-
-interface KabupatenStatsResponse {
-  success: boolean;
-  summary: {
-    total: number;
-    critical: number;
-    moderate: number;
-    minor: number;
-  };
-  data: KabupatenStatsItem[];
-}
-
-interface TopoJSONProperties {
-  ID_0: number;
-  ISO: string;
-  NAME_0: string;
-  ID_1: number;
-  NAME_1: string;
-  ID_2: number;
+interface KabupatenFeatureProperties {
+  CC_2: string;
   NAME_2: string;
-  VARNAME_2: string | null;
-  NL_NAME_2: string | null;
-  HASC_2: string | null;
-  CC_2: string | null;
-  TYPE_2: string;
-  ENGTYPE_2: string;
-  VALIDFR_2: string;
-  VALIDTO_2: string;
-  REMARKS_2: string | null;
-  Shape_Leng: number;
-  Shape_Area: number;
+  NAME_1: string;
+  stats: StatsData;
 }
 
-interface GeoJSONFeatureProperties extends TopoJSONProperties {
-  stats: KabupatenStatsData;
+interface KecamatanFeatureProperties {
+  CC_3: string;
+  NAME_3: string;
+  NAME_2: string;
+  NAME_1: string;
+  stats: StatsData;
 }
+
+type ViewLevel = "kabupaten" | "kecamatan";
 
 interface DashboardChoroplethProps {
   onStatsCalculated?: (stats: {
@@ -81,100 +67,211 @@ interface DashboardChoroplethProps {
 const DashboardChoropleth = ({
   onStatsCalculated,
 }: DashboardChoroplethProps) => {
-  const [geoJsonData, setGeoJsonData] = useState<FeatureCollection<
-    Geometry,
-    GeoJSONFeatureProperties
-  > | null>(null);
-  const [kabupatenStats, setKabupatenStats] = useState<KabupatenStatsItem[]>(
-    []
+  const [viewLevel, setViewLevel] = useState<ViewLevel>("kabupaten");
+  const [selectedKabupaten, setSelectedKabupaten] = useState<string | null>(
+    null
   );
+  const [kabupatenGeoJson, setKabupatenGeoJson] = useState<FeatureCollection<
+    Geometry,
+    KabupatenFeatureProperties
+  > | null>(null);
+  const [kecamatanGeoJson, setKecamatanGeoJson] = useState<FeatureCollection<
+    Geometry,
+    KecamatanFeatureProperties
+  > | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
 
-        // Load kabupaten stats from API
-        const statsResponse = await fetch("/api/kabupaten-stats");
-        const statsData: KabupatenStatsResponse = await statsResponse.json();
+        // Load both GeoJSON files from choropleth folder
+        const [kabupatenResponse, kecamatanResponse] = await Promise.all([
+          fetch("/choropleth/gadm41_JABAR_2.json"),
+          fetch("/choropleth/gadm41_JABAR_3.json"),
+        ]);
 
-        if (!statsData.success) {
-          throw new Error("Failed to fetch kabupaten stats");
+        const kabupatenData: FeatureCollection<
+          Geometry,
+          Record<string, unknown>
+        > = await kabupatenResponse.json();
+        const kecamatanData: FeatureCollection<
+          Geometry,
+          Record<string, unknown>
+        > = await kecamatanResponse.json();
+
+        // Both files already contain only Jawa Barat data
+        const jabarKabupatenFeatures = kabupatenData.features;
+
+        console.log(
+          "Loaded kabupaten features:",
+          jabarKabupatenFeatures.length
+        );
+        console.log(
+          "Sample kabupaten feature:",
+          jabarKabupatenFeatures[0]?.properties
+        );
+
+        // Fetch road damage data from MongoDB via API
+        const response = await fetch("/api/road-damages");
+        const roadDamagesData = await response.json();
+
+        if (!roadDamagesData.success) {
+          throw new Error("Failed to fetch road damages data");
         }
 
-        setKabupatenStats(statsData.data);
+        const roadDamages: RoadDamageData[] = roadDamagesData.data;
 
-        // Call the callback with calculated stats from API
+        // Group data by kabupaten
+        const kabupatenStatsMap = new Map<string, StatsData>();
+        // Group data by kecamatan
+        const kecamatanStatsMap = new Map<string, StatsData>();
+
+        roadDamages.forEach((data) => {
+          // Aggregate by kabupaten
+          const kabupatenCode = data.kode_kabupaten_kota;
+          if (kabupatenCode) {
+            if (!kabupatenStatsMap.has(kabupatenCode)) {
+              kabupatenStatsMap.set(kabupatenCode, {
+                total: 0,
+                parah: 0,
+                sedang: 0,
+                ringan: 0,
+              });
+            }
+
+            const kabStats = kabupatenStatsMap.get(kabupatenCode)!;
+            kabStats.total++;
+
+            if (data.kerusakan === "berat") {
+              kabStats.parah++;
+            } else if (data.kerusakan === "sedang") {
+              kabStats.sedang++;
+            } else if (data.kerusakan === "ringan") {
+              kabStats.ringan++;
+            }
+          }
+
+          // Aggregate by kecamatan
+          const kecamatanCode = data.choropleth?.kode;
+          if (kecamatanCode) {
+            if (!kecamatanStatsMap.has(kecamatanCode)) {
+              kecamatanStatsMap.set(kecamatanCode, {
+                total: 0,
+                parah: 0,
+                sedang: 0,
+                ringan: 0,
+              });
+            }
+
+            const kecStats = kecamatanStatsMap.get(kecamatanCode)!;
+            kecStats.total++;
+
+            if (data.kerusakan === "berat") {
+              kecStats.parah++;
+            } else if (data.kerusakan === "sedang") {
+              kecStats.sedang++;
+            } else if (data.kerusakan === "ringan") {
+              kecStats.ringan++;
+            }
+          }
+        });
+
+        // Calculate summary statistics
+        let totalDamages = 0;
+        let totalParah = 0;
+        let totalSedang = 0;
+        let totalRingan = 0;
+
+        kabupatenStatsMap.forEach((stats) => {
+          totalDamages += stats.total;
+          totalParah += stats.parah;
+          totalSedang += stats.sedang;
+          totalRingan += stats.ringan;
+        });
+
+        // Call the callback with calculated stats
         if (onStatsCalculated) {
           onStatsCalculated({
-            total: statsData.summary.total,
-            critical: statsData.summary.critical,
-            moderate: statsData.summary.moderate,
-            minor: statsData.summary.minor,
+            total: totalDamages,
+            critical: totalParah,
+            moderate: totalSedang,
+            minor: totalRingan,
           });
         }
 
-        // Load TopoJSON
-        const topoResponse = await fetch(
-          "/indonesia-topojson-city-regency.json"
-        );
-        const topoData = await topoResponse.json();
+        // Create kabupaten GeoJSON with stats
+        const kabupatenFeaturesWithStats: Feature<
+          Geometry,
+          KabupatenFeatureProperties
+        >[] = jabarKabupatenFeatures.map((feature) => {
+          const cc2 = feature.properties.CC_2 as string;
+          const stats = kabupatenStatsMap.get(cc2) || {
+            total: 0,
+            parah: 0,
+            sedang: 0,
+            ringan: 0,
+          };
 
-        // Convert TopoJSON to GeoJSON
-        const geoJson = topojson.feature(
-          topoData,
-          topoData.objects.IDN_adm_2_kabkota
-        ) as unknown as FeatureCollection<Geometry, TopoJSONProperties>;
+          return {
+            type: "Feature",
+            geometry: feature.geometry,
+            properties: {
+              CC_2: cc2,
+              NAME_2: feature.properties.NAME_2 as string,
+              NAME_1: feature.properties.NAME_1 as string,
+              stats,
+            },
+          };
+        });
 
-        // Filter only Jawa Barat (NAME_1 === "Jawa Barat")
-        const jabarFeatures = geoJson.features.filter(
-          (feature) => feature.properties.NAME_1 === "Jawa Barat"
-        );
+        // Create kecamatan GeoJSON with stats
+        const kecamatanFeaturesWithStats: Feature<
+          Geometry,
+          KecamatanFeatureProperties
+        >[] = kecamatanData.features.map((feature) => {
+          const cc3 = feature.properties.CC_3 as string;
+          const stats = kecamatanStatsMap.get(cc3) || {
+            total: 0,
+            parah: 0,
+            sedang: 0,
+            ringan: 0,
+          };
 
-        // Helper function to normalize kabupaten name for matching
-        const normalizeKabupatenName = (name: string): string => {
-          // If name starts with "Kota", use as-is
-          if (name.toUpperCase().startsWith("KOTA")) {
-            return name.toUpperCase();
-          }
-          // Otherwise, prepend "Kabupaten"
-          return `KABUPATEN ${name}`.toUpperCase();
-        };
+          return {
+            type: "Feature",
+            geometry: feature.geometry,
+            properties: {
+              CC_3: cc3,
+              NAME_3: feature.properties.NAME_3 as string,
+              NAME_2: feature.properties.NAME_2 as string,
+              NAME_1: feature.properties.NAME_1 as string,
+              stats,
+            },
+          };
+        });
 
-        // Add stats to properties
-        const featuresWithStats: Feature<Geometry, GeoJSONFeatureProperties>[] =
-          jabarFeatures.map((feature) => {
-            const name2 = feature.properties.NAME_2;
-            const normalizedName = normalizeKabupatenName(name2);
-
-            // Find matching stats by name
-            const matchedStats = statsData.data.find(
-              (item) => item.nama.toUpperCase() === normalizedName
-            );
-
-            const statsData_: KabupatenStatsData = matchedStats
-              ? matchedStats.data
-              : {
-                  total: 0,
-                  parah: 0,
-                  sedang: 0,
-                  ringan: 0,
-                };
-
-            return {
-              ...feature,
-              properties: {
-                ...feature.properties,
-                stats: statsData_,
-              },
-            };
-          });
-
-        setGeoJsonData({
+        setKabupatenGeoJson({
           type: "FeatureCollection",
-          features: featuresWithStats,
+          features: kabupatenFeaturesWithStats,
+        });
+
+        console.log(
+          "Kabupaten GeoJSON set with",
+          kabupatenFeaturesWithStats.length,
+          "features"
+        );
+        console.log(
+          "Sample kabupaten stats:",
+          kabupatenFeaturesWithStats[0]?.properties
+        );
+
+        setKecamatanGeoJson({
+          type: "FeatureCollection",
+          features: kecamatanFeaturesWithStats,
         });
 
         setError(null);
@@ -202,15 +299,14 @@ const DashboardChoropleth = ({
     return "#22c55e"; // green-500
   };
 
-  const style = (
-    feature?: Feature<Geometry, GeoJSONFeatureProperties>
+  const kabupatenStyle = (
+    feature?: Feature<Geometry, KabupatenFeatureProperties>
   ): L.PathOptions => {
     const stats = feature?.properties.stats || {
       total: 0,
       parah: 0,
       sedang: 0,
       ringan: 0,
-      nama: "",
     };
     return {
       fillColor: getColor(stats.total, stats.parah),
@@ -218,6 +314,25 @@ const DashboardChoropleth = ({
       opacity: 1,
       color: "white",
       dashArray: "3",
+      fillOpacity: 0.7,
+    };
+  };
+
+  const kecamatanStyle = (
+    feature?: Feature<Geometry, KecamatanFeatureProperties>
+  ): L.PathOptions => {
+    const stats = feature?.properties.stats || {
+      total: 0,
+      parah: 0,
+      sedang: 0,
+      ringan: 0,
+    };
+    return {
+      fillColor: getColor(stats.total, stats.parah),
+      weight: 1.5,
+      opacity: 1,
+      color: "white",
+      dashArray: "2",
       fillOpacity: 0.7,
     };
   };
@@ -233,15 +348,38 @@ const DashboardChoropleth = ({
     layer.bringToFront();
   };
 
-  const resetHighlight = (e: L.LeafletMouseEvent) => {
+  const resetKabupatenHighlight = (e: L.LeafletMouseEvent) => {
     const layer = e.target as L.Path & {
-      feature: Feature<Geometry, GeoJSONFeatureProperties>;
+      feature: Feature<Geometry, KabupatenFeatureProperties>;
     };
-    layer.setStyle(style(layer.feature));
+    layer.setStyle(kabupatenStyle(layer.feature));
   };
 
-  const onEachFeature = (
-    feature: Feature<Geometry, GeoJSONFeatureProperties>,
+  const resetKecamatanHighlight = (e: L.LeafletMouseEvent) => {
+    const layer = e.target as L.Path & {
+      feature: Feature<Geometry, KecamatanFeatureProperties>;
+    };
+    layer.setStyle(kecamatanStyle(layer.feature));
+  };
+
+  const handleKabupatenClick = (
+    feature: Feature<Geometry, KabupatenFeatureProperties>,
+    layer: L.Layer
+  ) => {
+    const kabupatenCode = feature.properties.CC_2;
+
+    setSelectedKabupaten(kabupatenCode);
+    setViewLevel("kecamatan");
+
+    // Zoom to the clicked kabupaten
+    if ("getBounds" in layer && mapRef.current) {
+      const bounds = (layer as L.Polygon | L.Polyline).getBounds();
+      mapRef.current.fitBounds(bounds, { padding: [50, 50] });
+    }
+  };
+
+  const onEachKabupatenFeature = (
+    feature: Feature<Geometry, KabupatenFeatureProperties>,
     layer: L.Layer
   ) => {
     const nama = feature.properties.NAME_2;
@@ -255,6 +393,7 @@ const DashboardChoropleth = ({
     layer.bindPopup(`
       <div class="p-3 min-w-[250px]">
         <h3 class="font-bold text-lg text-gray-800 mb-2">${nama}</h3>
+        <p class="text-xs text-gray-500 mb-2">Klik untuk melihat detail kecamatan</p>
         <div class="space-y-1 text-sm">
           <div class="flex justify-between">
             <span class="text-gray-600">Total Kerusakan:</span>
@@ -278,8 +417,114 @@ const DashboardChoropleth = ({
 
     layer.on({
       mouseover: highlightFeature,
-      mouseout: resetHighlight,
+      mouseout: resetKabupatenHighlight,
+      click: () => handleKabupatenClick(feature, layer),
     });
+  };
+
+  const onEachKecamatanFeature = (
+    feature: Feature<Geometry, KecamatanFeatureProperties>,
+    layer: L.Layer
+  ) => {
+    const namaKecamatan = feature.properties.NAME_3;
+    const namaKabupaten = feature.properties.NAME_2;
+    const stats = feature.properties.stats || {
+      total: 0,
+      parah: 0,
+      sedang: 0,
+      ringan: 0,
+    };
+
+    layer.bindPopup(`
+      <div class="p-3 min-w-[250px]">
+        <h3 class="font-bold text-lg text-gray-800 mb-1">${namaKecamatan}</h3>
+        <p class="text-xs text-gray-500 mb-2">${namaKabupaten}</p>
+        <div class="space-y-1 text-sm">
+          <div class="flex justify-between">
+            <span class="text-gray-600">Total Kerusakan:</span>
+            <span class="font-semibold text-gray-800">${stats.total}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-red-600">Parah:</span>
+            <span class="font-semibold text-red-600">${stats.parah}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-yellow-600">Sedang:</span>
+            <span class="font-semibold text-yellow-600">${stats.sedang}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-green-600">Ringan:</span>
+            <span class="font-semibold text-green-600">${stats.ringan}</span>
+          </div>
+        </div>
+      </div>
+    `);
+
+    layer.on({
+      mouseover: highlightFeature,
+      mouseout: resetKecamatanHighlight,
+    });
+  };
+
+  // Component to handle back button and map reference
+  const MapController = () => {
+    const map = useMap();
+
+    useEffect(() => {
+      mapRef.current = map;
+    }, [map]);
+
+    return null;
+  };
+
+  // Component to handle zoom level changes
+  const ZoomHandler = () => {
+    const map = useMapEvents({
+      zoomend: () => {
+        const zoom = map.getZoom();
+        // Auto switch to kecamatan view when zoomed in
+        if (zoom >= 11 && viewLevel === "kabupaten") {
+          // Don't auto-switch, let user click
+        }
+        // Auto switch back to kabupaten when zoomed out
+        if (zoom < 10 && viewLevel === "kecamatan") {
+          setViewLevel("kabupaten");
+          setSelectedKabupaten(null);
+        }
+      },
+    });
+
+    return null;
+  };
+
+  // Filter kecamatan features based on selected kabupaten
+  const getFilteredKecamatanGeoJson = (): FeatureCollection<
+    Geometry,
+    KecamatanFeatureProperties
+  > | null => {
+    if (!kecamatanGeoJson || !selectedKabupaten) return kecamatanGeoJson;
+
+    const filteredFeatures = kecamatanGeoJson.features.filter((feature) => {
+      // Match based on kabupaten name or code
+      // CC_3 format is usually kabupaten code + kecamatan code
+      // For example: 3204150 where 3204 is kabupaten code
+      const cc3 = feature.properties.CC_3;
+      const kabupatenFromCC3 = cc3.substring(0, 4);
+      return selectedKabupaten.startsWith(kabupatenFromCC3);
+    });
+
+    return {
+      type: "FeatureCollection",
+      features: filteredFeatures,
+    };
+  };
+
+  const handleBackToKabupaten = () => {
+    setViewLevel("kabupaten");
+    setSelectedKabupaten(null);
+    if (mapRef.current) {
+      mapRef.current.setView([-6.9175, 107.6191], 9);
+    }
   };
 
   const center: [number, number] = [-6.9175, 107.6191];
@@ -305,25 +550,68 @@ const DashboardChoropleth = ({
     );
   }
 
+  const currentGeoJson =
+    viewLevel === "kabupaten"
+      ? kabupatenGeoJson
+      : getFilteredKecamatanGeoJson();
+  const currentStyle =
+    viewLevel === "kabupaten" ? kabupatenStyle : kecamatanStyle;
+  const currentOnEachFeature =
+    viewLevel === "kabupaten" ? onEachKabupatenFeature : onEachKecamatanFeature;
+
   return (
-    <MapContainer
-      center={center}
-      zoom={9}
-      style={{ height: "100%", width: "100%" }}
-      className="z-0"
-    >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      {geoJsonData && (
-        <GeoJSON
-          data={geoJsonData}
-          style={style}
-          onEachFeature={onEachFeature}
-        />
+    <div className="relative w-full h-full">
+      {viewLevel === "kecamatan" && (
+        <button
+          onClick={handleBackToKabupaten}
+          className="absolute top-4 left-4 z-[1000] bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded shadow-lg flex items-center gap-2 transition-colors"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-5 w-5"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fillRule="evenodd"
+              d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z"
+              clipRule="evenodd"
+            />
+          </svg>
+          Kembali ke Kabupaten
+        </button>
       )}
-    </MapContainer>
+
+      <div className="absolute top-4 right-4 z-[1000] bg-white px-3 py-2 rounded shadow-lg border border-gray-300">
+        <p className="text-sm font-semibold text-gray-700">
+          {viewLevel === "kabupaten"
+            ? "Level: Kabupaten/Kota"
+            : `Level: Kecamatan ${selectedKabupaten ? "(Filtered)" : ""}`}
+        </p>
+      </div>
+
+      <MapContainer
+        center={center}
+        zoom={9}
+        style={{ height: "100%", width: "100%" }}
+        className="z-0"
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        <MapController />
+        <ZoomHandler />
+        {currentGeoJson && (
+          <GeoJSON
+            key={viewLevel + (selectedKabupaten || "")}
+            data={currentGeoJson}
+            style={currentStyle}
+            onEachFeature={currentOnEachFeature}
+          />
+        )}
+      </MapContainer>
+    </div>
   );
 };
 

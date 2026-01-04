@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { getDatabase, COLLECTIONS } from "@/lib/mongodb";
+import type { KabupatenStatsDocument } from "@/types/mongodb";
 
 export interface KabupatenStats {
   total: number;
@@ -25,59 +25,29 @@ export async function GET(request: NextRequest) {
     const kode = searchParams.get("kode");
     const kabupaten = searchParams.get("kabupaten");
 
-    // Ambil semua data dari collection road_damages
-    const roadDamagesRef = collection(db, "road_damages");
-    const snapshot = await getDocs(roadDamagesRef);
-
-    // Interface untuk data road damage
-    interface RoadDamageData {
-      id: number;
-      kode_provinsi: string;
-      nama_provinsi: string;
-      kode_kabupaten_kota: string;
-      nama_kabupaten_kota: string;
-      latitude: number;
-      longitude: number;
-      berat: number;
-      rusak_parah: number;
-      rusak_sedang: number;
-    }
-
-    // Grouping data berdasarkan kode_kabupaten_kota
-    const stats: KabupatenStatsMap = {};
-
-    snapshot.forEach((doc) => {
-      const data = doc.data() as RoadDamageData;
-      const kodeKab = data.kode_kabupaten_kota;
-
-      // Inisialisasi stats untuk kabupaten jika belum ada
-      if (!stats[kodeKab]) {
-        stats[kodeKab] = {
-          id: kodeKab,
-          nama: data.nama_kabupaten_kota,
-          data: { total: 0, parah: 0, sedang: 0, ringan: 0 },
-        };
-      }
-
-      // Increment total
-      stats[kodeKab].data.total++;
-
-      // Kategorikan berdasarkan tingkat kerusakan
-      if (data.berat === 1) {
-        stats[kodeKab].data.parah++;
-      } else if (data.rusak_sedang === 1) {
-        stats[kodeKab].data.sedang++;
-      } else {
-        stats[kodeKab].data.ringan++;
-      }
-    });
+    // Connect to MongoDB
+    const db = await getDatabase();
+    const kabupatenStatsCollection = db.collection<KabupatenStatsDocument>(
+      COLLECTIONS.KABUPATEN_STATS
+    );
 
     // Jika ada parameter kode, cari berdasarkan kode kabupaten (ID)
     if (kode) {
-      if (stats[kode]) {
+      const stats = await kabupatenStatsCollection.findOne({ _id: kode });
+
+      if (stats) {
         return NextResponse.json({
           success: true,
-          data: stats[kode],
+          data: {
+            id: stats._id,
+            nama: stats.nama,
+            data: {
+              total: stats.total,
+              parah: stats.parah,
+              sedang: stats.sedang,
+              ringan: stats.ringan,
+            },
+          },
         });
       } else {
         return NextResponse.json(
@@ -93,15 +63,23 @@ export async function GET(request: NextRequest) {
     // Jika ada parameter kabupaten, cari berdasarkan nama kabupaten (string, case-insensitive)
     if (kabupaten) {
       const searchTerm = kabupaten.toUpperCase();
-      const foundEntry = Object.entries(stats).find(
-        ([_, kabStats]) => kabStats.nama?.toUpperCase() === searchTerm
-      );
+      const stats = await kabupatenStatsCollection.findOne({
+        nama: { $regex: new RegExp(`^${searchTerm}$`, "i") },
+      });
 
-      if (foundEntry) {
-        const [_, foundStats] = foundEntry;
+      if (stats) {
         return NextResponse.json({
           success: true,
-          data: foundStats,
+          data: {
+            id: stats._id,
+            nama: stats.nama,
+            data: {
+              total: stats.total,
+              parah: stats.parah,
+              sedang: stats.sedang,
+              ringan: stats.ringan,
+            },
+          },
         });
       } else {
         return NextResponse.json(
@@ -114,17 +92,31 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Jika tidak ada parameter, return semua data dengan summary
+    const allStats = await kabupatenStatsCollection.find({}).toArray();
+
     // Hitung total statistik
     let totalCount = 0;
     let criticalCount = 0;
     let moderateCount = 0;
     let minorCount = 0;
 
-    Object.values(stats).forEach((kabStat) => {
-      totalCount += kabStat.data.total;
-      criticalCount += kabStat.data.parah;
-      moderateCount += kabStat.data.sedang;
-      minorCount += kabStat.data.ringan;
+    const statsArray: KabupatenStatsItem[] = allStats.map((stat) => {
+      totalCount += stat.total;
+      criticalCount += stat.parah;
+      moderateCount += stat.sedang;
+      minorCount += stat.ringan;
+
+      return {
+        id: stat._id,
+        nama: stat.nama,
+        data: {
+          total: stat.total,
+          parah: stat.parah,
+          sedang: stat.sedang,
+          ringan: stat.ringan,
+        },
+      };
     });
 
     return NextResponse.json({
@@ -135,7 +127,7 @@ export async function GET(request: NextRequest) {
         moderate: moderateCount,
         minor: minorCount,
       },
-      data: Object.values(stats),
+      data: statsArray,
     });
   } catch (error) {
     console.error("Error fetching kabupaten stats:", error);

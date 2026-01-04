@@ -2,7 +2,7 @@ import * as ort from "onnxruntime-web";
 import { preprocessImageFile, softmax } from "./onnx-utils";
 
 // Damage class labels - adjust based on your model's output
-const DAMAGE_CLASSES = ["Berat", "Sedang", "Ringan"];
+const DAMAGE_CLASSES = ["Berat", "Ringan", "Sedang"];
 
 export interface DetectionResult {
   class: string;
