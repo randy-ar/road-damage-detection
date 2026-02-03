@@ -23,6 +23,14 @@ export interface RoadDamageDocument extends Document {
   longitude: number;
   kerusakan: "ringan" | "sedang" | "berat";
   choropleth?: ChoroplethKecamatan;
+  // Additional metadata from detection
+  damage_class?: string;
+  confidence?: number;
+  image_size?: string;
+  image_width?: number;
+  image_height?: number;
+  processing_time?: number;
+  created_at?: Date;
 }
 
 /**
