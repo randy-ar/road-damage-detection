@@ -40,27 +40,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function mapDamageClassToKerusakan(
-  damageClass: string,
-): "ringan" | "sedang" | "berat" {
-  // Map detection class to kerusakan level
-  // D00, D01 = ringan (longitudinal/transverse cracks)
-  // D10, D11 = sedang (alligator/rutting cracks)
-  // D20, D40, D43, D44 = berat (potholes, white lines loss, crosswalk blur)
-  const damageClassUpper = damageClass.toUpperCase();
-
-  if (damageClassUpper.includes("D00") || damageClassUpper.includes("D01")) {
-    return "ringan";
-  } else if (
-    damageClassUpper.includes("D10") ||
-    damageClassUpper.includes("D11")
-  ) {
-    return "sedang";
-  } else {
-    return "berat";
-  }
-}
-
 export async function POST(request: NextRequest) {
   try {
     // Parse FormData for file upload

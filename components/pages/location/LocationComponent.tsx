@@ -210,7 +210,7 @@ const LocationComponent = ({
     };
 
     fetchLocationData();
-  }, [cityCode, districtCode]);
+  }, [cityCode, districtCode, latitude, longitude, onChange]);
 
   // Handle map click to set coordinates
   const handleMapClick = useCallback(

@@ -6,6 +6,9 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect, useState, useMemo } from "react";
 import { RoadDamageDocument } from "@/types/mongodb";
+import Image from "next/image";
+import { Badge } from "@/components/ui/badge";
+import { MapPin } from "lucide-react";
 
 // Interface for road damage data from MongoDB
 
@@ -203,9 +206,11 @@ const DashboardMap = () => {
             {/* Image Preview */}
             {damage.image_url ? (
               <div className="mb-3 rounded-lg overflow-hidden border border-gray-200">
-                <img
+                <Image
                   src={damage.image_url}
                   alt={`Road damage ${damage.id}`}
+                  width={280}
+                  height={128}
                   className="w-full h-32 object-cover"
                   loading="lazy"
                   onError={(e) => {
@@ -232,35 +237,40 @@ const DashboardMap = () => {
                 {getSeverityLabel(damage.kerusakan)}
               </span>
             </div>
-            <div className="space-y-1 text-sm">
-              <p>Latitude: {damage.latitude}</p>
-              <p>Longitude: {damage.longitude}</p>
-              <p className="text-gray-600">
+            <div className="space-y-1.5 text-sm">
+              <Badge variant="secondary" className="font-mono">
+                <MapPin className="w-3 h-3 mr-1" />
+                {damage.latitude.toFixed(8)}
+              </Badge>
+              <Badge variant="secondary" className="font-mono">
+                {damage.longitude.toFixed(8)}
+              </Badge>
+              <div className="text-gray-600 m-0 p-1">
                 <span className="font-semibold">Kecamatan:</span>{" "}
                 {damage.nama_kecamatan}
-              </p>
-              <p className="text-gray-600">
+              </div>
+              <div className="text-gray-600 m-0 p-1">
                 <span className="font-semibold">Kota/Kab:</span>{" "}
                 {damage.nama_kabupaten_kota}
-              </p>
-              <p className="text-gray-600">
+              </div>
+              <div className="text-gray-600 m-0 p-1">
                 <span className="font-semibold">Provinsi:</span>{" "}
                 {damage.nama_provinsi}
-              </p>
+              </div>
               {damage.damage_class && (
-                <p className="text-gray-600">
+                <div className="text-gray-600 m-0 p-1">
                   <span className="font-semibold">Kelas Kerusakan:</span>{" "}
                   {damage.damage_class}
-                </p>
+                </div>
               )}
               {damage.confidence !== undefined && (
-                <p className="text-gray-600">
+                <div className="text-gray-600 m-0 p-1">
                   <span className="font-semibold">Confidence:</span>{" "}
                   {damage.confidence.toFixed(2)}%
-                </p>
+                </div>
               )}
               {damage.created_at && (
-                <p className="text-gray-500 text-xs mt-2">
+                <div className="text-gray-500 text-xs mt-2 m-0 p-0">
                   {new Date(damage.created_at).toLocaleDateString("id-ID", {
                     day: "numeric",
                     month: "long",
@@ -268,7 +278,7 @@ const DashboardMap = () => {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}
-                </p>
+                </div>
               )}
             </div>
           </div>

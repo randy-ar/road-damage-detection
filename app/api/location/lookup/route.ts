@@ -52,7 +52,7 @@ interface GadmData {
 function calculateCentroidAndBounds(
   coordinates: number[][][] | number[][][][],
 ) {
-  let allPoints: [number, number][] = [];
+  const allPoints: [number, number][] = [];
 
   // Flatten coordinates to get all points
   const flattenCoords = (coords: unknown): void => {

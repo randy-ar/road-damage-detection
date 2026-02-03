@@ -33,10 +33,6 @@ interface DetectionResults {
   processingTime: number;
 }
 
-interface LocationResponse {
-  data: Location[];
-}
-
 interface Location {
   code: string;
   name: string;
