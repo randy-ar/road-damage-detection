@@ -85,7 +85,9 @@ const minorIcon = createCustomIcon("#22c55e");
 
 // Custom cluster icon creator function
 // Per documentation: iconCreateFunction?: ((cluster: MarkerCluster) => Icon | DivIcon)
-const createClusterCustomIcon = (cluster: L.MarkerCluster): L.DivIcon => {
+const createClusterCustomIcon = (cluster: {
+  getChildCount: () => number;
+}): L.DivIcon => {
   const count = cluster.getChildCount();
 
   // Determine cluster color and size based on marker count
