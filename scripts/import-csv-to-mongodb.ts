@@ -14,10 +14,10 @@ async function importCSVToMongoDB() {
     // Connect to MongoDB
     const db = await getDatabase();
     const roadDamagesCollection = db.collection<RoadDamageDocument>(
-      COLLECTIONS.ROAD_DAMAGES
+      COLLECTIONS.ROAD_DAMAGES,
     );
     const kabupatenStatsCollection = db.collection<KabupatenStatsDocument>(
-      COLLECTIONS.KABUPATEN_STATS
+      COLLECTIONS.KABUPATEN_STATS,
     );
 
     // Baca file CSV
@@ -25,7 +25,7 @@ async function importCSVToMongoDB() {
       process.cwd(),
       "public",
       "csv",
-      "road_damage_final.csv"
+      "road_damage_final.csv",
     );
     const csvContent = fs.readFileSync(csvPath, "utf-8");
     const lines = csvContent.split("\n");
@@ -50,7 +50,7 @@ async function importCSVToMongoDB() {
         nama_provinsi: values[2],
         kode_kabupaten_kota: values[3],
         nama_kabupaten_kota: values[4],
-        kode_kecamatan: values[5],
+        kode_kecamatan: choroplethId,
         nama_kecamatan: values[6],
         latitude: parseFloat(values[7]),
         longitude: parseFloat(values[8]),
@@ -115,16 +115,16 @@ async function importCSVToMongoDB() {
 }
 
 async function createKabupatenAggregation(
-  db: Awaited<ReturnType<typeof getDatabase>>
+  db: Awaited<ReturnType<typeof getDatabase>>,
 ) {
   try {
     console.log("\n📊 Membuat agregasi data per kabupaten...");
 
     const roadDamagesCollection = db.collection<RoadDamageDocument>(
-      COLLECTIONS.ROAD_DAMAGES
+      COLLECTIONS.ROAD_DAMAGES,
     );
     const kabupatenStatsCollection = db.collection<KabupatenStatsDocument>(
-      COLLECTIONS.KABUPATEN_STATS
+      COLLECTIONS.KABUPATEN_STATS,
     );
 
     // Gunakan aggregation pipeline untuk menghitung stats per kabupaten
@@ -168,7 +168,7 @@ async function createKabupatenAggregation(
 
       await kabupatenStatsCollection.bulkWrite(bulkOps);
       console.log(
-        `✅ Agregasi selesai! Total kabupaten: ${aggregationResult.length}`
+        `✅ Agregasi selesai! Total kabupaten: ${aggregationResult.length}`,
       );
     }
   } catch (error) {

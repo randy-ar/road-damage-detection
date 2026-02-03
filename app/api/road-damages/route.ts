@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase, COLLECTIONS } from "@/lib/mongodb";
+import { uploadImage } from "@/lib/supabase";
 import type { RoadDamageDocument } from "@/types/mongodb";
 
 export async function GET(request: NextRequest) {
@@ -39,23 +40,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-interface CreateRoadDamageRequest {
-  kode_provinsi: string;
-  nama_provinsi: string;
-  kode_kabupaten_kota: string;
-  nama_kabupaten_kota: string;
-  kode_kecamatan: string;
-  nama_kecamatan: string;
-  latitude: number;
-  longitude: number;
-  damage_class: string;
-  confidence: number;
-  image_size: string;
-  image_width: number;
-  image_height: number;
-  processing_time: number;
-}
-
 function mapDamageClassToKerusakan(
   damageClass: string,
 ): "ringan" | "sedang" | "berat" {
@@ -79,27 +63,69 @@ function mapDamageClassToKerusakan(
 
 export async function POST(request: NextRequest) {
   try {
-    const body: CreateRoadDamageRequest = await request.json();
+    // Parse FormData for file upload
+    const formData = await request.formData();
+
+    // Get form fields
+    const kode_provinsi = formData.get("kode_provinsi") as string;
+    const nama_provinsi = formData.get("nama_provinsi") as string;
+    const kode_kabupaten_kota = formData.get("kode_kabupaten_kota") as string;
+    const nama_kabupaten_kota = formData.get("nama_kabupaten_kota") as string;
+    const kode_kecamatan = formData.get("kode_kecamatan") as string;
+    const nama_kecamatan = formData.get("nama_kecamatan") as string;
+    const latitude = parseFloat(formData.get("latitude") as string) || 0;
+    const longitude = parseFloat(formData.get("longitude") as string) || 0;
+    const damage_class = formData.get("damage_class") as string;
+    const confidence = parseFloat(formData.get("confidence") as string) || 0;
+    const image_size = formData.get("image_size") as string;
+    const image_width = parseInt(formData.get("image_width") as string) || 0;
+    const image_height = parseInt(formData.get("image_height") as string) || 0;
+    const processing_time =
+      parseFloat(formData.get("processing_time") as string) || 0;
+    const imageFile = formData.get("image") as File | null;
 
     // Validate required fields
-    const requiredFields = [
-      "kode_provinsi",
-      "nama_provinsi",
-      "kode_kabupaten_kota",
-      "nama_kabupaten_kota",
-      "kode_kecamatan",
-      "nama_kecamatan",
-      "latitude",
-      "longitude",
-      "damage_class",
-      "confidence",
-    ];
+    const requiredFields = {
+      kode_provinsi,
+      nama_provinsi,
+      kode_kabupaten_kota,
+      nama_kabupaten_kota,
+      kode_kecamatan,
+      nama_kecamatan,
+      damage_class,
+    };
 
-    for (const field of requiredFields) {
-      if (!(field in body)) {
+    for (const [field, value] of Object.entries(requiredFields)) {
+      if (!value) {
         return NextResponse.json(
           { success: false, error: `Missing required field: ${field}` },
           { status: 400 },
+        );
+      }
+    }
+
+    // Upload image to Supabase Storage if provided
+    let imageUrl: string | null = null;
+    let imagePath: string | null = null;
+
+    if (imageFile) {
+      // Convert File to Buffer
+      const arrayBuffer = await imageFile.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      // Upload to Supabase
+      const uploadResult = await uploadImage(
+        buffer,
+        imageFile.name,
+        imageFile.type,
+      );
+
+      if (uploadResult) {
+        imageUrl = uploadResult.url;
+        imagePath = uploadResult.path;
+      } else {
+        console.warn(
+          "Failed to upload image to storage, continuing without image URL",
         );
       }
     }
@@ -119,30 +145,33 @@ export async function POST(request: NextRequest) {
     const nextId = lastDoc.length > 0 ? (lastDoc[0].id || 0) + 1 : 1;
 
     // Create the document
-    const kerusakan = body.damage_class.toLowerCase();
+    const kerusakan = damage_class.toLowerCase();
 
     const newDocument: Omit<RoadDamageDocument, "_id"> = {
       id: nextId,
-      kode_provinsi: body.kode_provinsi,
-      nama_provinsi: body.nama_provinsi,
-      kode_kabupaten_kota: body.kode_kabupaten_kota.split(".").join(""),
-      nama_kabupaten_kota: body.nama_kabupaten_kota,
-      kode_kecamatan: body.kode_kecamatan,
-      nama_kecamatan: body.nama_kecamatan,
-      latitude: body.latitude,
-      longitude: body.longitude,
+      kode_provinsi,
+      nama_provinsi,
+      kode_kabupaten_kota: kode_kabupaten_kota.split(".").join(""),
+      nama_kabupaten_kota,
+      kode_kecamatan,
+      nama_kecamatan,
+      latitude,
+      longitude,
       kerusakan,
       choropleth: {
-        nama: body.nama_kecamatan,
-        kode: body.kode_kecamatan,
+        nama: nama_kecamatan,
+        kode: kode_kecamatan,
       },
       // Additional metadata
-      damage_class: body.damage_class,
-      confidence: body.confidence,
-      image_size: body.image_size,
-      image_width: body.image_width,
-      image_height: body.image_height,
-      processing_time: body.processing_time,
+      damage_class,
+      confidence,
+      image_size,
+      image_width,
+      image_height,
+      processing_time,
+      // Image storage info
+      image_url: imageUrl,
+      image_path: imagePath,
       created_at: new Date(),
     };
 
@@ -157,6 +186,7 @@ export async function POST(request: NextRequest) {
         _id: result.insertedId,
         id: nextId,
         kerusakan,
+        image_url: imageUrl,
       },
     });
   } catch (error) {

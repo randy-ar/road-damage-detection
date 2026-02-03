@@ -5,46 +5,16 @@ import MarkerClusterGroup from "react-leaflet-cluster";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect, useState, useMemo } from "react";
+import { RoadDamageDocument } from "@/types/mongodb";
 
 // Interface for road damage data from MongoDB
-interface RoadDamageData {
-  _id: string;
-  id: number;
-  kode_provinsi: string;
-  nama_provinsi: string;
-  kode_kabupaten_kota: string;
-  nama_kabupaten_kota: string;
-  kode_kecamatan: string;
-  nama_kecamatan: string;
-  latitude: number;
-  longitude: number;
-  kerusakan: "ringan" | "sedang" | "berat";
-  damage_class?: string;
-  confidence?: number;
-  created_at?: string;
-}
 
 // Interface for API response
 interface ApiResponse {
   success: boolean;
   count: number;
-  data: RoadDamageData[];
+  data: RoadDamageDocument[];
   error?: string;
-}
-
-// Interface for display data
-interface DisplayDamageData {
-  id: number;
-  mongoId: string;
-  lat: number;
-  lng: number;
-  severity: "critical" | "moderate" | "minor";
-  location: string;
-  city: string;
-  kecamatan: string;
-  damageClass?: string;
-  confidence?: number;
-  createdAt?: string;
 }
 
 // Fix for default marker icons in Leaflet
@@ -131,7 +101,9 @@ const createClusterCustomIcon = (cluster: {
 };
 
 const DashboardMap = () => {
-  const [roadDamageData, setRoadDamageData] = useState<DisplayDamageData[]>([]);
+  const [roadDamageData, setRoadDamageData] = useState<RoadDamageDocument[]>(
+    [],
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -161,31 +133,7 @@ const DashboardMap = () => {
           throw new Error(result.error || "Failed to fetch data");
         }
 
-        const damages: DisplayDamageData[] = result.data.map((data) => {
-          // Map kerusakan to severity
-          let severity: "critical" | "moderate" | "minor" = "minor";
-          if (data.kerusakan === "berat") {
-            severity = "critical";
-          } else if (data.kerusakan === "sedang") {
-            severity = "moderate";
-          } else {
-            severity = "minor";
-          }
-
-          return {
-            id: data.id,
-            mongoId: data._id,
-            lat: data.latitude,
-            lng: data.longitude,
-            severity: severity,
-            location: data.nama_kecamatan,
-            city: data.nama_kabupaten_kota,
-            kecamatan: data.nama_kecamatan,
-            damageClass: data.damage_class,
-            confidence: data.confidence,
-            createdAt: data.created_at,
-          };
-        });
+        const damages: RoadDamageDocument[] = result.data;
 
         setRoadDamageData(damages);
         setError(null);
@@ -204,11 +152,11 @@ const DashboardMap = () => {
   const getIcon = useMemo(() => {
     return (severity: string) => {
       switch (severity) {
-        case "critical":
+        case "berat":
           return criticalIcon;
-        case "moderate":
+        case "sedang":
           return moderateIcon;
-        case "minor":
+        case "ringan":
           return minorIcon;
         default:
           return defaultIcon;
@@ -244,36 +192,65 @@ const DashboardMap = () => {
 
   // Memoize markers to prevent unnecessary re-renders
   const markers = useMemo(() => {
-    return roadDamageData.map((damage) => (
+    return roadDamageData.map((damage: RoadDamageDocument) => (
       <Marker
-        key={`${damage.mongoId}-${damage.id}`}
-        position={[damage.lat, damage.lng]}
-        icon={getIcon(damage.severity)}
+        key={`${damage.choropleth?.kode}-${damage.id}`}
+        position={[damage.latitude, damage.longitude]}
+        icon={getIcon(damage.kerusakan)}
       >
         <Popup>
-          <div className="p-2 min-w-[220px]">
+          <div className="p-2 min-w-[220px] max-w-[280px]">
+            {/* Image Preview */}
+            {damage.image_url ? (
+              <div className="mb-3 rounded-lg overflow-hidden border border-gray-200">
+                <img
+                  src={damage.image_url}
+                  alt={`Road damage ${damage.id}`}
+                  className="w-full h-32 object-cover"
+                  loading="lazy"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = "none";
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="mb-3 rounded-lg overflow-hidden border border-gray-200 bg-gray-100 h-32 flex items-center justify-center">
+                <span className="text-gray-400 text-sm">
+                  No image available
+                </span>
+              </div>
+            )}
+
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-bold text-gray-800">ID: {damage.id}</h3>
               <span
                 className={`text-xs px-2 py-1 rounded-full font-semibold ${getSeverityColor(
-                  damage.severity,
+                  damage.kerusakan,
                 )}`}
               >
-                {getSeverityLabel(damage.severity)}
+                {getSeverityLabel(damage.kerusakan)}
               </span>
             </div>
             <div className="space-y-1 text-sm">
+              <p>Latitude: {damage.latitude}</p>
+              <p>Longitude: {damage.longitude}</p>
               <p className="text-gray-600">
                 <span className="font-semibold">Kecamatan:</span>{" "}
-                {damage.kecamatan}
+                {damage.nama_kecamatan}
               </p>
               <p className="text-gray-600">
-                <span className="font-semibold">Kota/Kab:</span> {damage.city}
+                <span className="font-semibold">Kota/Kab:</span>{" "}
+                {damage.nama_kabupaten_kota}
               </p>
-              {damage.damageClass && (
+              <p className="text-gray-600">
+                <span className="font-semibold">Provinsi:</span>{" "}
+                {damage.nama_provinsi}
+              </p>
+              {damage.damage_class && (
                 <p className="text-gray-600">
                   <span className="font-semibold">Kelas Kerusakan:</span>{" "}
-                  {damage.damageClass}
+                  {damage.damage_class}
                 </p>
               )}
               {damage.confidence !== undefined && (
@@ -282,9 +259,9 @@ const DashboardMap = () => {
                   {damage.confidence.toFixed(2)}%
                 </p>
               )}
-              {damage.createdAt && (
+              {damage.created_at && (
                 <p className="text-gray-500 text-xs mt-2">
-                  {new Date(damage.createdAt).toLocaleDateString("id-ID", {
+                  {new Date(damage.created_at).toLocaleDateString("id-ID", {
                     day: "numeric",
                     month: "long",
                     year: "numeric",
@@ -316,13 +293,13 @@ const DashboardMap = () => {
       />
 
       {loading && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-white px-4 py-2 rounded-lg shadow-md">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-1000 bg-white px-4 py-2 rounded-lg shadow-md">
           Memuat data...
         </div>
       )}
 
       {error && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-red-50 text-red-600 px-4 py-2 rounded-lg shadow-md">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-1000 bg-red-50 text-red-600 px-4 py-2 rounded-lg shadow-md">
           {error}
         </div>
       )}

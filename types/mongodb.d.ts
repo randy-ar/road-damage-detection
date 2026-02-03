@@ -30,6 +30,9 @@ export interface RoadDamageDocument extends Document {
   image_width?: number;
   image_height?: number;
   processing_time?: number;
+  // Image storage info from Supabase
+  image_url?: string | null;
+  image_path?: string | null;
   created_at?: Date;
 }
 

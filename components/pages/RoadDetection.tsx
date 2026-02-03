@@ -48,11 +48,25 @@ const RoadDetector = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [results, setResults] = useState<DetectionResults | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [modelLoaded, setModelLoaded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isPredicted, setIsPredicted] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+
+  // Stored detection data for submit
+  const [detectionData, setDetectionData] = useState<{
+    class: string;
+    confidence: number;
+    processingTime: number;
+  } | null>(null);
+  const [imageMetadata, setImageMetadata] = useState<{
+    size: string;
+    width: number;
+    height: number;
+  } | null>(null);
 
   // Location state
   const [cities, setCities] = useState<Location[]>([]);
@@ -141,8 +155,8 @@ const RoadDetector = () => {
     setPreviewUrl(url);
   };
 
-  // Handle process button click
-  const handleProcess = async () => {
+  // Handle predict button click - only run prediction
+  const handlePredict = async () => {
     if (!selectedFile) {
       setError("Please select an image first");
       return;
@@ -153,13 +167,9 @@ const RoadDetector = () => {
       return;
     }
 
-    if (!selectedCity || !selectedDistrict) {
-      setError("Please select city and district first");
-      return;
-    }
-
     setIsProcessing(true);
     setError(null);
+    setIsPredicted(false);
     setSubmitSuccess(false);
 
     try {
@@ -168,12 +178,6 @@ const RoadDetector = () => {
 
       // Run detection
       const detection = await detectRoadDamage(selectedFile);
-
-      // Get selected city and district names
-      const selectedCityData = cities.find((c) => c.code === selectedCity);
-      const selectedDistrictData = districts.find(
-        (d) => d.code === selectedDistrict,
-      );
 
       // Update results
       const detectionResults = {
@@ -186,43 +190,18 @@ const RoadDetector = () => {
       };
       setResults(detectionResults);
 
-      // Save to database
-      const saveResponse = await fetch("/api/road-damages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          kode_provinsi: "32",
-          nama_provinsi: "Jawa Barat",
-          kode_kabupaten_kota: selectedCity,
-          nama_kabupaten_kota: selectedCityData?.name || "",
-          kode_kecamatan: selectedDistrict,
-          nama_kecamatan: selectedDistrictData?.name || "",
-          latitude: latitude || 0,
-          longitude: longitude || 0,
-          damage_class: detection.class,
-          confidence: detection.confidence,
-          image_size: metadata.size,
-          image_width: metadata.width,
-          image_height: metadata.height,
-          processing_time: detection.processingTime,
-        }),
+      // Store detection data for later submit
+      setDetectionData({
+        class: detection.class,
+        confidence: detection.confidence,
+        processingTime: detection.processingTime,
       });
+      setImageMetadata(metadata);
 
-      const saveResult = await saveResponse.json();
-
-      if (!saveResult.success) {
-        console.error("Failed to save:", saveResult.error);
-        setError(`Detection completed but failed to save: ${saveResult.error}`);
-        toast.error(
-          `Detection completed but failed to save: ${saveResult.error}`,
-        );
-      } else {
-        toast.success("Detection completed and saved successfully!");
-        console.log("Saved successfully:", saveResult.data);
-        setSubmitSuccess(true);
-      }
+      setIsPredicted(true);
+      toast.success(
+        "Prediction completed! Please fill in the location details.",
+      );
     } catch (err) {
       console.error("Processing error:", err);
       setError("Failed to process image. Please try again.");
@@ -232,14 +211,104 @@ const RoadDetector = () => {
     }
   };
 
+  // Handle submit data - save to database
+  const handleSubmitData = async () => {
+    if (!selectedCity || !selectedDistrict) {
+      setError("Please select city and district first");
+      return;
+    }
+
+    if (!detectionData || !imageMetadata) {
+      setError("No prediction data available. Please run prediction first.");
+      return;
+    }
+
+    // Validate GPS coordinates - ensure they are valid numbers
+    if (latitude === null || longitude === null) {
+      setError("GPS coordinates are required. Please enable location access.");
+      return;
+    }
+
+    // Validate coordinate ranges (Indonesia approximate bounds)
+    if (latitude < -11 || latitude > 6 || longitude < 95 || longitude > 141) {
+      setError(
+        "GPS coordinates appear to be outside Indonesia. Please check your location.",
+      );
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      // Get selected city and district names
+      const selectedCityData = cities.find((c) => c.code === selectedCity);
+      const selectedDistrictData = districts.find(
+        (d) => d.code === selectedDistrict,
+      );
+
+      // Create FormData to send file and data
+      const formData = new FormData();
+      formData.append("kode_provinsi", "32");
+      formData.append("nama_provinsi", "Jawa Barat");
+      formData.append("kode_kabupaten_kota", selectedCity);
+      formData.append("nama_kabupaten_kota", selectedCityData?.name || "");
+      formData.append("kode_kecamatan", selectedDistrict);
+      formData.append("nama_kecamatan", selectedDistrictData?.name || "");
+      // Send coordinates with full precision (up to 17 significant digits)
+      // toFixed(15) ensures maximum precision for GPS coordinates
+      formData.append("latitude", latitude.toPrecision());
+      formData.append("longitude", longitude.toPrecision());
+      formData.append("damage_class", detectionData.class);
+      formData.append("confidence", String(detectionData.confidence));
+      formData.append("image_size", imageMetadata.size);
+      formData.append("image_width", String(imageMetadata.width));
+      formData.append("image_height", String(imageMetadata.height));
+      formData.append("processing_time", String(detectionData.processingTime));
+
+      // Append image file if available
+      if (selectedFile) {
+        formData.append("image", selectedFile);
+      }
+
+      // Save to database with image upload
+      const saveResponse = await fetch("/api/road-damages", {
+        method: "POST",
+        body: formData,
+      });
+
+      const saveResult = await saveResponse.json();
+
+      if (!saveResult.success) {
+        console.error("Failed to save:", saveResult.error);
+        setError(`Failed to save data: ${saveResult.error}`);
+        toast.error(`Failed to save data: ${saveResult.error}`);
+      } else {
+        toast.success("Data saved successfully!");
+        console.log("Saved successfully:", saveResult.data);
+        setSubmitSuccess(true);
+      }
+    } catch (err) {
+      console.error("Submit error:", err);
+      setError("Failed to submit data. Please try again.");
+      toast.error("Failed to submit data. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const resetForm = () => {
     setSelectedFile(null);
     setSelectedCity(null);
     setSelectedDistrict(null);
     setIsProcessing(false);
+    setIsSubmitting(false);
+    setIsPredicted(false);
     setSubmitSuccess(false);
     setError(null);
     setResults(null);
+    setDetectionData(null);
+    setImageMetadata(null);
     setLatitude(null);
     setLongitude(null);
     setPreviewUrl(null);
@@ -331,91 +400,110 @@ const RoadDetector = () => {
             </div>
           )}
 
-          {/* File Input */}
-          <Input
-            ref={fileInputRef}
-            type="file"
-            accept=".jpg,.jpeg,.png"
-            onChange={handleFileChange}
-            disabled={isProcessing}
-          />
+          {/* File Input - Only show when not predicted yet */}
+          {!isPredicted && (
+            <Input
+              ref={fileInputRef}
+              type="file"
+              accept=".jpg,.jpeg,.png"
+              onChange={handleFileChange}
+              disabled={isProcessing}
+            />
+          )}
 
-          {/* City Select */}
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">Kota/Kabupaten</label>
-            <Select
-              value={selectedCity || undefined}
-              onValueChange={setSelectedCity}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Pilih Kota/Kabupaten" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {cities.map((city) => (
-                    <SelectItem key={city.code} value={city.code}>
-                      {city.name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* District Select */}
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">Kecamatan</label>
-            <Select
-              value={selectedDistrict || undefined}
-              onValueChange={setSelectedDistrict}
-              disabled={!selectedCity}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Pilih Kecamatan" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {districts.map((district) => (
-                    <SelectItem key={district.code} value={district.code}>
-                      {district.name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <LocationComponent onChange={handleLocationChange} />
-          {/* Process Button */}
-          <Button
-            className={`w-full ${submitSuccess ? "hidden" : ""}`}
-            onClick={handleProcess}
-            disabled={
-              !selectedFile ||
-              isProcessing ||
-              !modelLoaded ||
-              !selectedCity ||
-              !selectedDistrict ||
-              submitSuccess
-            }
-          >
-            {isProcessing ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              "Process"
-            )}
-          </Button>
-          {submitSuccess && (
+          {/* Predict Button - Show when file selected but not predicted */}
+          {!isPredicted && !submitSuccess && (
             <Button
-              variant="outline"
-              className="w-full mt-2"
-              onClick={() => {
-                resetForm();
-              }}
+              className="w-full"
+              onClick={handlePredict}
+              disabled={!selectedFile || isProcessing || !modelLoaded}
             >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Predicting...
+                </>
+              ) : (
+                "Predict"
+              )}
+            </Button>
+          )}
+
+          {/* Location Form - Only show after prediction */}
+          {isPredicted && !submitSuccess && (
+            <>
+              {/* City Select */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Kota/Kabupaten</label>
+                <Select
+                  value={selectedCity || undefined}
+                  onValueChange={setSelectedCity}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Pilih Kota/Kabupaten" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {cities.map((city) => (
+                        <SelectItem key={city.code} value={city.code}>
+                          {city.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* District Select */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Kecamatan</label>
+                <Select
+                  value={selectedDistrict || undefined}
+                  onValueChange={setSelectedDistrict}
+                  disabled={!selectedCity}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Pilih Kecamatan" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {districts.map((district) => (
+                        <SelectItem key={district.code} value={district.code}>
+                          {district.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <LocationComponent
+                cityCode={selectedCity || undefined}
+                districtCode={selectedDistrict || undefined}
+                onChange={handleLocationChange}
+              />
+
+              {/* Submit Button */}
+              <Button
+                className="w-full"
+                onClick={handleSubmitData}
+                disabled={!selectedCity || !selectedDistrict || isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  "Submit Data"
+                )}
+              </Button>
+            </>
+          )}
+
+          {/* Process Again Button - Show after successful submit */}
+          {submitSuccess && (
+            <Button variant="outline" className="w-full" onClick={resetForm}>
               Process Again
             </Button>
           )}
